@@ -1,11 +1,11 @@
 #![allow(non_snake_case, unused, warnings)]
 #![feature(proc_macro_hygiene)]
 
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use serde_derive::Deserialize;
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
 use smash::lib::lua_const::*;
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path, sync::Mutex};
 
 // Each enabled mod folder in sd:/ultimate/mods/ may contain this file at its root.
 const IDENTIFIER: &str = "config_scale.toml";
@@ -18,7 +18,7 @@ const MODS_DIR: &str = "sd:/ultimate/mods";
 //   slots = [80,81,82]         # optional default costumes; -1 = all costumes
 //
 //   [[scale]]
-//   value = 1.2                # ABSOLUTE size: 1.0 = normal
+//   value = 1.2                # size MULTIPLIER: 1.0 = normal
 //   # kind / kinds / slots can be set here too to override the defaults:
 //   # kinds = ["pikachu", "pichu"]
 //   # slots = [80,81]
@@ -48,6 +48,18 @@ struct Entry {
 }
 
 static ENTRIES: OnceCell<Vec<Entry>> = OnceCell::new();
+
+// Per-fighter memory (keyed by the fighter's module accessor address): the scale
+// we last applied. If the current scale differs from it, the game changed the
+// size itself (spawn, mushrooms, etc.), so we re-apply our multiplier on top.
+// Tiny offset added to every size we apply. It guarantees the size we set can never
+// equal a size the game writes later (for example the game restoring 1.0 while we
+// had set exactly 1.0), which would make us think the game changed nothing.
+const MARK: f32 = 0.0002;
+// How far the current size may differ from what we applied before we assume the game changed it.
+const TOLERANCE: f32 = 0.00002;
+
+static APPLIED: Lazy<Mutex<HashMap<usize, f32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 const FIGHTERS: &[(&str, i32)] = &[
     ("mario", 0),
@@ -275,10 +287,19 @@ unsafe fn wanted_scale(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
 
 #[skyline::hook(replace = lr_impl)]
 unsafe fn lr_hook(boma: *mut BattleObjectModuleAccessor) -> f32 {
-    if let Some(target) = wanted_scale(boma) {
+    if let Some(mult) = wanted_scale(boma) {
+        let key = boma as usize;
         let current = scale_impl(boma);
-        if (current - target).abs() > 0.001 {
-            set_scale_impl(boma, target, false);
+        let mut applied = APPLIED.lock().unwrap();
+        let game_changed_it = match applied.get(&key) {
+            Some(last) => (current - *last).abs() > TOLERANCE,
+            None => true,
+        };
+        if game_changed_it {
+            // `current` is the size the game wants right now (normal, mushroom, ...).
+            set_scale_impl(boma, current * mult + MARK, false);
+            // Remember what the game actually stored, so we never re-multiply our own value.
+            applied.insert(key, scale_impl(boma));
         }
     }
     original!()(boma)
