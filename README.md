@@ -15,13 +15,21 @@ slots = [0,1,2]
 [[scale]]
 value = 1.2
 ```
+
 This makes Mario costumes 0, 1 and 2 twenty percent bigger.
+
+### Top-level defaults (optional)
+
+| Key | Meaning |
+|---|---|
+| `kind` | Default fighter for entries that don't set their own. |
+| `slots` | Default costume numbers. `-1` means all costumes. |
 
 ### Entries
 
 | Key | Required | Meaning |
 |---|---|---|
-| `value` | yes | Absolute size: `1.0` = normal, `1.2` = 20% bigger, `0.8` = smaller. |
+| `value` | yes | Size multiplier: `1.0` = normal, `1.2` = 20% bigger, `0.8` = smaller. |
 | `kind` | no | One fighter name. |
 | `kinds` | no | A list of fighters sharing the same size and slots, e.g. `["mario", "luigi"]`. |
 | `slots` | no | Costume numbers affected. `-1` = all. |
@@ -30,14 +38,18 @@ An entry needs a fighter and at least one slot, either its own or from the top-l
 
 ## Notes
 
-- `value` is an absolute size, not a multiplier.
-- Only fighters are affected, not projectiles.
-- Hitboxes and ledge grabs may not match very large or small sizes.
+- `value` multiplies the size the game uses, so effects that change size (Super/Poison Mushroom, etc.) still work on top of it.
 - Fighter names are the internal ones (`mario`, `pikachu`, `ptrainer`, ...), case-insensitive.
 
 ## Build
 
 Requires [cargo-skyline](https://github.com/jam1garner/cargo-skyline):
+
+```
+cargo skyline build --release
+```
+
+The result is `target/aarch64-skyline-switch/release/libchar_scale.nro`.
 
 ## Credits
 
