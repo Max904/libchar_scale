@@ -1,7 +1,7 @@
 # libchar_scale
 
 A plugin that changes the size of any fighter, per costume slot, using a `config_scale.toml` file inside your mod folders.
-
+![preview](https://github.com/Max904/libchar_scale/blob/main/preview.png?raw=true)
 **Requires:** [Skyline](https://github.com/skyline-dev/skyline) and [ARCropolis](https://github.com/Raytwo/ARCropolis).
 
 ## Usage
