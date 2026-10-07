@@ -5,7 +5,15 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde_derive::Deserialize;
 use smash::app::{lua_bind::*, utility, BattleObjectModuleAccessor};
 use smash::lib::lua_const::*;
-use std::{collections::HashMap, fs, path::Path, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fs,
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Mutex,
+    },
+};
 
 // Each enabled mod folder in sd:/ultimate/mods/ may contain this file at its root.
 const IDENTIFIER: &str = "config_scale.toml";
@@ -16,12 +24,14 @@ const MODS_DIR: &str = "sd:/ultimate/mods";
 //
 //   kind  = "pikachu"          # optional default fighter for entries below
 //   slots = [80,81,82]         # optional default costumes; -1 = all costumes
+//   scale_in_results = true    # optional; false = normal size on the results screen
 //
 //   [[scale]]
 //   value = 1.2                # size MULTIPLIER: 1.0 = normal
 //   # kind / kinds / slots can be set here too to override the defaults:
 //   # kinds = ["pikachu", "pichu"]
 //   # slots = [80,81]
+//   # scale_in_results = false
 //
 // If several entries match the same fighter, the LAST one wins.
 // ---------------------------------------------------------------------------
@@ -30,6 +40,7 @@ const MODS_DIR: &str = "sd:/ultimate/mods";
 struct ConfigToml {
     kind: Option<String>,
     slots: Option<Vec<i32>>,
+    scale_in_results: Option<bool>,
     scale: Option<Vec<ScaleToml>>,
 }
 
@@ -38,6 +49,7 @@ struct ScaleToml {
     kind: Option<String>,
     kinds: Option<Vec<String>>,
     slots: Option<Vec<i32>>,
+    scale_in_results: Option<bool>,
     value: f32,
 }
 
@@ -45,12 +57,13 @@ struct Entry {
     kind: i32,
     slots: Vec<i32>,
     value: f32,
+    scale_in_results: bool,
 }
 
 static ENTRIES: OnceCell<Vec<Entry>> = OnceCell::new();
 
 // Per-fighter memory (keyed by the fighter's module accessor address): the scale
-// last applied. If the current scale differs from it, the game changed the
+// we last applied. If the current scale differs from it, the game changed the
 // size itself (spawn, mushrooms, etc.), so we re-apply our multiplier on top.
 // Tiny offset added to every size we apply. It guarantees the size we set can never
 // equal a size the game writes later (for example the game restoring 1.0 while we
@@ -178,6 +191,7 @@ fn read_config(path: &str, out: &mut Vec<Entry>) -> bool {
         }
     };
     let default_slots = data.slots.unwrap_or_default();
+    let default_in_results = data.scale_in_results.unwrap_or(true);
     let mut added = false;
     for s in data.scale.unwrap_or_default() {
         if !(s.value.is_finite() && s.value > 0.0) {
@@ -200,6 +214,7 @@ fn read_config(path: &str, out: &mut Vec<Entry>) -> bool {
             println!("[char_scale] Entry without a fighter in {}", path);
             continue;
         }
+        let in_results = s.scale_in_results.unwrap_or(default_in_results);
         let slots = match s.slots {
             Some(sl) => sl,
             None => default_slots.clone(),
@@ -212,7 +227,7 @@ fn read_config(path: &str, out: &mut Vec<Entry>) -> bool {
             match kind_from_name(&name) {
                 Some(kind) => {
                     println!("[char_scale] {} slots {:?} -> scale {}", name, slots, s.value);
-                    out.push(Entry { kind, slots: slots.clone(), value: s.value });
+                    out.push(Entry { kind, slots: slots.clone(), value: s.value, scale_in_results: in_results });
                     added = true;
                 }
                 None => println!("[char_scale] Unknown fighter '{}' in {}", name, path),
@@ -261,12 +276,16 @@ extern "C" {
     #[link_name = "\u{1}_ZN3app8lua_bind25PostureModule__scale_implEPNS_26BattleObjectModuleAccessorE"]
     fn scale_impl(boma: *mut BattleObjectModuleAccessor) -> f32;
 
+    // The game's own "are we on the results screen?" check.
+    #[link_name = "\u{1}_ZN3app8lua_bind35FighterManager__is_result_mode_implEPNS_14FighterManagerE"]
+    fn is_result_mode_impl(fighter_manager: *mut smash::app::FighterManager) -> bool;
+
     // Called constantly by fighter scripts, so we use it as a per-frame trigger.
     #[link_name = "\u{1}_ZN3app8lua_bind22PostureModule__lr_implEPNS_26BattleObjectModuleAccessorE"]
     fn lr_impl(boma: *mut BattleObjectModuleAccessor) -> f32;
 }
 
-unsafe fn wanted_scale(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
+unsafe fn wanted_scale(boma: *mut BattleObjectModuleAccessor) -> Option<(f32, bool)> {
     let entries = ENTRIES.get()?;
     if boma.is_null() {
         return None;
@@ -279,16 +298,53 @@ unsafe fn wanted_scale(boma: *mut BattleObjectModuleAccessor) -> Option<f32> {
     let mut result = None;
     for e in entries {
         if e.kind == kind && (e.slots.contains(&-1) || e.slots.contains(&color)) {
-            result = Some(e.value); // last match wins
+            result = Some((e.value, e.scale_in_results)); // last match wins
         }
+    }
+    result
+}
+
+// The game's FighterManager, captured the first time the game calls is_result_mode.
+static FIGHTER_MANAGER: AtomicUsize = AtomicUsize::new(0);
+static LOGGED_RESULTS: AtomicBool = AtomicBool::new(false);
+
+#[skyline::hook(replace = is_result_mode_impl)]
+unsafe fn result_mode_hook(fighter_manager: *mut smash::app::FighterManager) -> bool {
+    if !fighter_manager.is_null()
+        && FIGHTER_MANAGER.swap(fighter_manager as usize, Ordering::Relaxed) == 0
+    {
+        println!("[char_scale] FighterManager captured");
+    }
+    original!()(fighter_manager)
+}
+
+// True on the results screen: the game says so, or the fighter is in a win/lose status.
+unsafe fn in_results(boma: *mut BattleObjectModuleAccessor) -> bool {
+    let fm = FIGHTER_MANAGER.load(Ordering::Relaxed);
+    let by_manager = fm != 0 && is_result_mode_impl(fm as *mut smash::app::FighterManager);
+    let status = StatusModule::status_kind(boma);
+    let by_status = status == *FIGHTER_STATUS_KIND_WIN || status == *FIGHTER_STATUS_KIND_LOSE;
+    let result = by_manager || by_status;
+    if result && !LOGGED_RESULTS.swap(true, Ordering::Relaxed) {
+        println!("[char_scale] Results screen detected (manager: {}, status: {})", by_manager, by_status);
     }
     result
 }
 
 #[skyline::hook(replace = lr_impl)]
 unsafe fn lr_hook(boma: *mut BattleObjectModuleAccessor) -> f32 {
-    if let Some(mult) = wanted_scale(boma) {
+    if let Some((mult, scale_in_results)) = wanted_scale(boma) {
         let key = boma as usize;
+        if !scale_in_results && in_results(boma) {
+            // Results screen with scaling turned off: undo our size once, then leave it alone.
+            let mut applied = APPLIED.lock().unwrap();
+            if let Some(last) = applied.remove(&key) {
+                if (scale_impl(boma) - last).abs() <= TOLERANCE {
+                    set_scale_impl(boma, (last - MARK) / mult, false);
+                }
+            }
+            return original!()(boma);
+        }
         let current = scale_impl(boma);
         let mut applied = APPLIED.lock().unwrap();
         let game_changed_it = match applied.get(&key) {
@@ -319,6 +375,6 @@ pub fn main() {
         return;
     }
     ENTRIES.set(entries).ok();
-    skyline::install_hook!(lr_hook);
+    skyline::install_hooks!(lr_hook, result_mode_hook);
     println!("[char_scale] Loaded");
 }
