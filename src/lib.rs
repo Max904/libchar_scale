@@ -50,7 +50,7 @@ struct Entry {
 static ENTRIES: OnceCell<Vec<Entry>> = OnceCell::new();
 
 // Per-fighter memory (keyed by the fighter's module accessor address): the scale
-// we last applied. If the current scale differs from it, the game changed the
+// last applied. If the current scale differs from it, the game changed the
 // size itself (spawn, mushrooms, etc.), so we re-apply our multiplier on top.
 // Tiny offset added to every size we apply. It guarantees the size we set can never
 // equal a size the game writes later (for example the game restoring 1.0 while we
