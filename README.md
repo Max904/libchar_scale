@@ -1,1 +1,50 @@
 # libchar_scale
+
+A plugin that changes the size of any fighter, per costume slot, using a `config_scale.toml` file inside your mod folders.
+
+**Requires:** [Skyline](https://github.com/skyline-dev/skyline) and [ARCropolis](https://github.com/Raytwo/ARCropolis).
+
+## Usage
+
+Put a `config_scale.toml` in the root of an enabled mod folder (`sd:/ultimate/mods/<Your Mod>/`), then restart the game:
+
+```toml
+kind  = "mario"
+slots = [0,1,2]
+
+[[scale]]
+value = 1.2
+```
+This makes Mario costumes 0, 1 and 2 twenty percent bigger.
+
+### Entries
+
+| Key | Required | Meaning |
+|---|---|---|
+| `value` | yes | Absolute size: `1.0` = normal, `1.2` = 20% bigger, `0.8` = smaller. |
+| `kind` | no | One fighter name. |
+| `kinds` | no | A list of fighters sharing the same size and slots, e.g. `["mario", "luigi"]`. |
+| `slots` | no | Costume numbers affected. `-1` = all. |
+
+An entry needs a fighter and at least one slot, either its own or from the top-level defaults. If entries overlap, the last one wins.
+
+## Notes
+
+- `value` is an absolute size, not a multiplier.
+- Only fighters are affected, not projectiles.
+- Hitboxes and ledge grabs may not match very large or small sizes.
+- Fighter names are the internal ones (`mario`, `pikachu`, `ptrainer`, ...), case-insensitive.
+
+## Build
+
+Requires [cargo-skyline](https://github.com/jam1garner/cargo-skyline):
+
+```
+cargo skyline build --release
+```
+
+The result is `target/aarch64-skyline-switch/release/libchar_scale.nro`.
+
+## Credits
+
+Config scanning modeled on [lib_paramconfig](https://github.com/CSharpM7/lib_paramconfig) by CSharpM7.
