@@ -39,12 +39,6 @@ An entry needs a fighter and at least one slot, either its own or from the top-l
 
 Requires [cargo-skyline](https://github.com/jam1garner/cargo-skyline):
 
-```
-cargo skyline build --release
-```
-
-The result is `target/aarch64-skyline-switch/release/libchar_scale.nro`.
-
 ## Credits
 
 Config scanning modeled on [lib_paramconfig](https://github.com/CSharpM7/lib_paramconfig) by CSharpM7.
