@@ -1,6 +1,6 @@
 # libchar_scale
 
-A plugin that changes the size of any fighter, per costume slot, using a `config_scale.toml` file inside your mod folders.
+A plugin that changes the size of any fighter, per costume slot, using a `config_scale.toml` file inside your mod folders. (tested on 13.0.4 and 13.0.5)
 
 ![preview](https://github.com/Max904/libchar_scale/blob/main/preview.png?raw=true)
 
