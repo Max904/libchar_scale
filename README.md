@@ -11,12 +11,11 @@ A plugin that changes the size of any fighter, per costume slot, using a `config
 Put a `config_scale.toml` in the root of an enabled mod folder (`sd:/ultimate/mods/<Your Mod>/`), then restart the game:
 
 ```toml
+[[scale]]
 kind  = "mario"
 slots = [0,1,2]
-scale_in_results = false
-
-[[scale]]
 value = 1.2
+scale_in_results = false
 ```
 
 This makes Mario costumes 0, 1 and 2 twenty percent bigger.
