@@ -1,5 +1,5 @@
+[[scale]]
 kind  = "mario"
 slots = [0,1,2]
-
-[[scale]]
 value = 1.2
+scale_in_results = false
